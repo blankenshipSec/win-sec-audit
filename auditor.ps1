@@ -282,13 +282,26 @@ function Test-BitLockerStatus {
     Write-SectionHeader "BitLocker Encryption"
 
     try {
-        $volumes = Get-BitLockerVolume -ErrorAction Stop
+        $job = Start-Job -ScriptBlock { Get-BitLockerVolume -ErrorAction Stop }
+        $completed = Wait-Job $job -Timeout 5
+
+        if (-not $completed) {
+            Remove-Job $job -Force
+            Write-Result    -Status $WARN `
+                            -Category "BitLocker" `
+                            -Message "BitLocker check timed out" `
+                            -Detail "Get-BitLockerVolume did not respond within 5 seconds"
+            return
+        }
+
+        $volumes = Receive-Job $job
+        Remove-Job $job
 
         foreach ($volume in $volumes) {
             if ($volume.ProtectionStatus -eq "On") {
                 Write-Result    -Status $PASS `
                                 -Category "BitLocker" `
-                                -Message "Bitlocker is enabled on drive $($volume.MountPoint)" `
+                                -Message "BitLocker is enabled on drive $($volume.MountPoint)" `
                                 -Detail "Drive: $($volume.MountPoint) - Status: $($volume.ProtectionStatus)"
             } else {
                 Write-Result    -Status $FAIL `
@@ -300,7 +313,7 @@ function Test-BitLockerStatus {
     } catch {
         Write-Result    -Status $WARN `
                         -Category "BitLocker" `
-                        -Message "Could not retrieve BitLocker Status, or not available for this edition" `
+                        -Message "Could not retrieve BitLocker status" `
                         -Detail "Error: $($_.Exception.Message)"
     }
 }
